@@ -1,0 +1,1039 @@
+---
+title: "College and University Revenue by Jurisdiction"
+runtime: shiny
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    navbar:
+     - { title: "Back", href: "https://rshiny.csccloud.ca", align: Right }
+    vertical_layout: scroll
+    theme: simplex
+    logo: logo2.png
+
+---
+
+```{r setup, include=FALSE}
+
+#setwd("U:/3. Visualizations/01 Live Visualizations/interprovincial")
+
+library(tidyr)
+library(plyr)
+library(dplyr)
+library(stringr)
+library(plotly) # devtools::install_github('ropensci/plotly')
+library(ggplot2) # devtools::install_github('hadley/ggplot2')
+library(flexdashboard) # devtools::install_github('rstudio/flexdashboard')
+library(ggthemes)
+library(leaflet)
+library(scales)
+#library(rgdal)
+library(htmltools)
+library(bsplus)
+
+#Read data from tidy and alignment script
+fiuc <- read.csv("fiuc.csv", header=TRUE, col.names = c("NA","NA","REVENUE","Ref_Date", "Fund", "Value","Category","GEO"))[ ,3:8]
+fincol <- read.csv("fincol.csv", header=TRUE, col.names = c("NA","NA","REVENUE","Ref_Date", "Fund", "Value","Category","GEO"))[ ,3:8]
+#pop <- read.csv("pop.csv",header=TRUE)[3:5] # unused; for provincial population integration, eventually
+
+enrol <- read.csv("enrol.csv", header=TRUE)[,3:8]
+enrolcol <- enrol[enrol$TYPE=="College",]
+enrol <- enrol[enrol$TYPE=="University",]
+
+
+# testing code:
+# input <- NULL
+# input$immigra <- unique(enrol$IMMIGRA)
+# input$GEO2 <- unique(fiuc$GEO)
+# input$cat <- unique(fiuc$Category)
+# input$fund <- unique(fiuc$Fund)
+# input$status <- unique(enrol$STATUS)
+# enrolr<-enrol
+# enrolr <- filter(enrolr,enrolr$STATUS==input$status[1] , enrolr$IMMIGRA == input$immigra[1])
+# enrolr <- group_by(enrolr, Ref_Date, GEO2)
+# enrolRaw <- summarise_each(enrolr,funs(sum),-TYPE,-STATUS,-IMMIGRA)
+
+#Reactive global filters and aggregation of data depending on inputs
+# commented code in this section is draft material to fix saskatchewan
+enrol.r <-  reactive({
+  enrolr<-enrol
+  enrolr %>%
+  filter(STATUS==input$status,IMMIGRA == input$immigra) %>%
+  group_by(Ref_Date, GEO2) %>%
+  summarise_each(funs(sum),-TYPE,-STATUS,-IMMIGRA) -> enrolRaw
+  
+     
+     interpolateyears <- c("2004/2005","2005/2006","2006/2007","2007/2008","2008/2009","2009/2010")
+     dropyears <- c("2005/2006","2006/2007","2007/2008","2008/2009")
+     startVal <- filter(enrolRaw,GEO2 == "SK",Ref_Date == "2004/2005")$Value
+     endVal <- filter(enrolRaw,GEO2 == "SK",Ref_Date == "2009/2010")$Value
+     step = (endVal-startVal )/5
+     #make a series of just 5 years for SK; interpolated
+     enrolRaw$ValueSK <- NA
+     for(i in 1:6){
+       enrolRaw[enrolRaw$Ref_Date == interpolateyears[i] & enrolRaw$GEO2=="SK",]$ValueSK <- startVal+((i-1)*step)
+     }
+     #Null out offending years
+     enrolRaw[enrolRaw$GEO2=="SK" & enrolRaw$Ref_Date %in% dropyears,]$Value <- NA
+     enrolRaw
+  })
+
+enrolcol.r = reactive({
+  enrolcolr<-enrolcol
+  enrolcolr %>%
+  filter(STATUS==input$statuscol,IMMIGRA == input$immigracol) %>%
+  group_by(Ref_Date, GEO2) %>%
+  summarise_each(funs(sum),-TYPE,-STATUS,-IMMIGRA)
+  })
+
+fiuc.r = reactive({
+  fiucr <- fiuc
+  fiucr <- fiucr[fiucr$GEO %in% input$prov & fiucr$Category %in% input$cat & fiucr$Fund %in% input$fund,]
+  })
+
+fincol.r = reactive({
+  fincolr <- fincol
+  fincolr <- fincol[fincolr$GEO %in% input$provcol & fincolr$Category %in% input$catcol & fincolr$Fund %in% input$fundcol,]
+  })
+
+#Graph Legend Controls
+v <- list(
+  font = list(
+    family = "sans-serif",
+    size = 10,
+    color = "#000"),
+  bgcolor = "#BFFFFFFF",
+  bordercolor = "#FFFFFF",
+  borderwidth = 2,
+  x = 0,
+  y = -.3,orientation = 'h')
+
+
+superdollars <- function(x, ... ,pref=""){
+  postf <- NULL
+  Base <- x
+  if (x>=1e12){
+    Base <- x/1e12
+    postf <- "T"
+  }
+  else if (x>=1e9){
+    Base <- x/1e9
+    postf <- "B"
+  }
+  else if (x>=1e6){
+    Base <- x/1e6
+    postf <- "M"
+  }  
+  else if (x>=1e3){
+    Base <- x/1e3
+    postf <- "k"
+  }
+  output <- paste(pref,round(Base,2),postf,sep="") 
+  output
+}
+
+```
+
+
+About
+=====================================  
+
+Row 
+-------------------------------------
+
+### Purpose
+
+
+This interactive web application visualizes system-level revenues end expenditures at post-secondary institutions. This simplifies and visualizes the data reported by colleges and universities in the *Financial Information of Universities and Colleges survey*, an annual reporting tool managed by CAUBO, and the *FINCOL curvey, a similar data collection tool for colleges that is managed by Statistics Canada.
+
+This tool can help: 
+
+* Compare different types of sector revenue across provinces; and,
+* Explore trends in revenue overall and per student. 
+
+
+
+This tool can help: 
+
+* Compare different types of sector revenue across provinces; and,
+* Explore trends in revenue overall and per student. 
+
+
+Row 
+-------------------------------------
+
+### Content
+
+This tool contains the following sections (available in the main menu above):
+
+* A summary of Univeristy Revenues; and,
+* A comparative summary of College Revenues.
+
+Future updates will include institutional expenditures, and comparison of individual institutions. 
+
+Row 
+-------------------------------------
+
+### Tool Functions 
+
+This tool summarizes and compares institutional revenue. This includes the following features: 
+
+* View revenue per student, per person, or sector totals;
+* Filter data by immigration status or registration status;
+* Explore different types of revenue; and,
+* Compare provinces and trends over time.
+
+Row 
+-------------------------------------
+
+### Notes
+
+Due to a reporting issue, student counts are incorrectly reported in Saskatchewan from 2005 through 2008, showing lower total enrolment counts than expected.
+
+The application is built with the [Shiny](http://shiny.rstudio.com) framework for the [R programming language](https://www.r-project.org/). The application layout is produced with the [flexdashboard](http://rstudio.github.io/flexdashboard/index.html) package, and the charts and maps use [Plotly](http://plot.ly) and [ggplot2](http://ggplot2.org/), all accessed through their corresponding R packages.  
+
+The data is entirely open, and sourced from __StatCan__, including the following sets:
+
+* [Table 477-0058: Financial information of universities and degree-granting colleges, revenues by type of fund](http://www20.statcan.gc.ca/tables-tableaux/cansim/csv/04770058-eng.zip)
+* [Table 477-0060: Financial information of community colleges and vocational schools, revenues by type of fund](http://www20.statcan.gc.ca/tables-tableaux/cansim/csv/04770060-eng.zip)
+* [Table 477-0019: Postsecondary enrolments, by registration status, Pan-Canadian Standard Classification of Education (PCSCE), Classification of Instructional Programs, Primary Grouping (CIP_PG), sex and student status](http://www20.statcan.gc.ca/tables-tableaux/cansim/csv/04770019-eng.zip)
+
+### Contact
+
+* Does this tool meet your needs? 
+* Do the use cases resonate with you?
+* Are there other use cases or features you think would be helpful?
+
+Should you encounter any issues with this tool, please contact the Funding Policy and System Planning Unit at MAESD: http://www.infogo.gov.on.ca/infogo/#orgProfile/5640/en 
+
+University Revenues
+======================================================================
+
+Inputs {.sidebar data-width=300}
+-------------------------------------
+
+### Select and filter data
+
+__Measure to be used__
+```{r}
+
+#Define inputs
+#Add per capita, per 18-24 and store in denominator
+#Could add download link for visible data
+
+#Per student/population
+# radioButtons('per', label = NULL, choiceValues = c("Total","Enrolment","Population"),choiceNames = c("Sector total ","Funding per-student (FTE Enrolment)","Funding per person (Population)"), selected = "Enrolment")
+
+radioButtons('per', label = NULL, choiceValues = c("Total","Enrolment"),choiceNames = c("Sector total ","Funding per-student (FTE Enrolment)"), selected = "Enrolment")
+
+#Could add fund as input
+#Could add download link for visible data
+
+```
+
+
+
+__Enrolment measure (if selected above)__
+```{r}
+selectInput('immigra', label = 'Immigration status', choices = unique(enrol$IMMIGRA), selected = "Canadian students")
+selectInput('status', label = 'Registration status', choices = unique(enrol$STATUS), selected = "Full-time student")
+```
+
+__Select provinces to display__
+```{r}
+checkboxGroupInput('prov', label = NULL, choices = unique(fiuc$GEO),selected=unique(fiuc$GEO))
+```
+
+__Select revenue categories to display__
+```{r}
+checkboxGroupInput('cat', label = NULL, choices = unique(fiuc$Category),unique(fiuc$Category))
+```
+
+__Select funds to display__
+```{r}
+checkboxGroupInput('fund', label = NULL, choices = unique(fiuc$Fund),unique(fiuc$Fund))
+
+
+```
+
+__Select year to investigate__
+```{r}
+selectInput('year', label = NULL, choices = unique(fiuc$Ref_Date), selected = "2014/2015")
+
+#Download data
+output$downloadData <- downloadHandler(
+ filename = function() {
+      paste("data-", Sys.Date(), ".csv", sep="")
+    },
+ content = function(file) {
+      write.csv(enrolcol.r, file)
+    }
+  )
+  
+downloadLink('downloadData', label = 'Download Data')
+```
+
+Row 
+-----------------------------------------------------------------------
+
+### University Revenues Over Time
+
+```{r}
+
+#Revenue by category with ggplotly
+output$revtime <- renderPlotly({
+  fiuc.t <- fiuc.r()
+  fiuc.t <- fiuc.t %>%
+  group_by(GEO, Ref_Date) %>%
+  summarise_each(funs(sum),-REVENUE,-Fund,-Category)
+  
+  enrol.t <- enrol.r()
+  
+  #Merge Denominator
+    if(input$per=="Enrolment"){
+    fiuc.t <- merge(fiuc.t, enrol.t, by.x = c('GEO','Ref_Date'), by.y = c("GEO2",'Ref_Date'), all.x=TRUE)
+    fiuc.t$amountSK <- 1000*fiuc.t$Value.x/fiuc.t$ValueSK
+  } else if(input$per=="Population"){
+    fiuc.t <- merge(fiuc.t, pop, by.x = c('GEO','Ref_Date'), by.y = c("GEO2",'Ref_Date'), all.x=TRUE)
+  } else if(input$per=="Total"){
+    fiuc.t$Value.y<-as.numeric(1)
+    colnames(fiuc.t)[3]<-"Value.x"
+  }
+
+  
+  fiuc.t$Ref_Date <- as.numeric(substr(fiuc.t$Ref_Date,1,4))
+  fiuc.t$amount  <- 1000*fiuc.t$Value.x/fiuc.t$Value.y
+
+  
+  #p1a <- ggplot(fiuc.t, aes(x=Ref_Date,y=amount, colour=GEO)) + 
+    #geom_line() +
+    #geom_point(alpha=.4) +
+    #scale_y_continuous(labels = scales::dollar) +
+    #theme_minimal(base_size = 11) + scale_colour_hue(name="Province") +
+    #ylab('Revenue ($K)') + xlab('Year') +
+    #theme(legend.title=element_blank(),legend.key = element_rect(fill = "transparent", colour = "transparent"))
+  
+  #p1a<-plot_ly(data=fiuc.t, x=fiuc.t$Ref_Date,y=fiuc.t$amount,type='scatter', mode='lines',color=~GEO, tickprefix = "$", ticksuffix="K")
+  #g <- ggplotly(p1a, source = 'source',hoverinfo = 'text',text = paste('Amount:', amount))
+
+  
+  
+
+  p1a <- plot_ly(fiuc.t, 
+                hoverinfo = 'text', 
+                text = ~paste('Province: ', GEO,'</br>', 
+                               '</br>Revenue: ', 
+                               mapply(x=((
+                                            ifelse(is.na(fiuc.t$amount),fiuc.t$amountSK,fiuc.t$amount))),
+                                      FUN=superdollars,
+                                      pref="$"),
+                               '</br>year: ', Ref_Date,
+                               sep=""
+                               )) %>%
+                add_trace(x=fiuc.t$Ref_Date,
+                          y=fiuc.t$amount,
+                          type='scatter', 
+                          mode='lines+markers',
+                          color=~GEO
+                          ) %>%
+                layout(yaxis = list(title="Revenue", 
+                                    tickprefix = "$", 
+                                    ticksuffix=""),
+                       xaxis = list(title="Year"))
+  
+  if(input$per=="Enrolment"){
+  p1a <- p1a  %>% add_trace(x=fiuc.t$Ref_Date,
+                          y=fiuc.t$amountSK,
+                          type='scatter', 
+                          mode='lines+markers',
+                          color=~GEO,
+                          line=list(dash='dot',
+                                    color=rgb(.7,.7,.7)
+                                    ),
+                          showlegend = FALSE
+                          )}
+  
+  
+  p1a
+  
+})  
+
+plotlyOutput('revtime')
+
+```
+
+Row
+-----------------------------------------------------------------------
+
+### University Revenues by Category 
+
+```{r}
+
+#Filter and aggregate data
+output$revcat <- renderPlotly({
+
+  fiuc.c <- fiuc.r()
+  fiuc.c <- fiuc.c[fiuc.c$Ref_Date==input$year,]
+
+  fiuc.c <- fiuc.c %>%
+  group_by(GEO, Category) %>%
+  summarise_each(funs(sum),-REVENUE,-Fund, -Ref_Date)
+  
+  enrol.c <- enrol.r()
+  enrol.c <- enrol.c[enrol.c$Ref_Date==input$year,]
+  
+  #Merge denominator
+  if(input$per=="Enrolment"){
+    fiuc.c <- merge(fiuc.c, enrol.c, by.x = 'GEO', by.y = "GEO2", all.x=TRUE)
+  } else if(input$per=="Population"){
+    #insert population merge
+  } else if(input$per=="Total"){
+    fiuc.c$Value.y<-1
+    colnames(fiuc.c)[3]<-"Value.x"
+  }
+   
+  fiuc.c$amount  <- fiuc.c$Value.x/fiuc.c$Value.y*1000
+  fiuc.c <- ddply(fiuc.c, .(GEO), transform, pos = cumsum(amount) - (0.5 * amount))
+
+  #Plot
+  #p1a <- ggplot(fiuc.c, aes(x=GEO,y=amount, fill=Category)) + 
+    #geom_bar(stat="identity", alpha = .8) +
+    #geom_text(data=fiuc.c,aes(label = dollar(round(amount,digits=2)), y= pos), size = 3) +
+    #scale_y_continuous(labels = scales::dollar) +
+    #theme_minimal(base_size = 11) + scale_colour_hue(name="Province") +
+    #ylab('Revenue ($K)') + xlab('Category') +
+    #theme(legend.title=element_blank(),legend.key = element_rect(fill = "transparent", colour = "transparent"))
+
+  #p1a <- ggplotly(p1a, source = 'source') %>%
+  #layout(legend = v,hoverinfo="text")
+  
+  p1a <- plot_ly(fiuc.c,
+                hoverinfo = 'text', 
+                text = ~paste('Category: ', Category, '</br>', 
+                               '</br>Revenue: ', 
+                                mapply(x=fiuc.c$amount,
+                                      FUN=superdollars,
+                                      pref="$"),
+                               '</br>Year: ', input$year,
+                               sep=""
+                               )) %>%
+    add_trace(x=fiuc.c$GEO,
+              y=fiuc.c$amount,type='bar', 
+              color=~Category
+              ) %>%
+    layout(yaxis = list(title=paste(input$year,"  revenue"), 
+                        tickprefix = "$", 
+                        ticksuffix=""),
+           xaxis = list(title="Province"), 
+           barmode='stack',
+           legend = list(orientation = 'h'))
+  #data labels
+  p1a
+  
+})  
+
+plotlyOutput('revcat')
+```
+
+### University Revenues by Fund
+
+```{r}
+
+#Filter and aggregate data
+output$revfund <- renderPlotly({
+
+  fiuc.f <- fiuc.r()
+  fiuc.f <- fiuc.f[fiuc.f$Ref_Date==input$year,]
+
+  fiuc.f <- fiuc.f %>%
+  group_by(GEO, Fund) %>%
+  summarise_each(funs(sum),-REVENUE,-Category,-Ref_Date)
+  
+  enrol.f <- enrol.r()
+  enrol.f <- enrol.f[enrol.f$Ref_Date==input$year,]
+  
+  #Merge denominator
+  if(input$per=="Enrolment"){
+    fiuc.f <- merge(fiuc.f, enrol.f, by.x = 'GEO', by.y = "GEO2", all.x=TRUE)
+  } else if(input$per=="Population"){
+    #insert population merge
+  } else if(input$per=="Total"){
+    fiuc.f$Value.y<-1
+    colnames(fiuc.f)[3]<-"Value.x"
+  }
+   
+  fiuc.f$amount  <- 1000*fiuc.f$Value.x/fiuc.f$Value.y
+  fiuc.f <- ddply(fiuc.f, .(GEO), transform, pos = cumsum(amount) - (0.5 * amount))
+  
+  #Plot
+  #p1a <- ggplot(fiuc.f, aes(x=GEO,y=amount, fill=Fund)) + 
+    #geom_bar(stat="identity", alpha = .8) +
+    #geom_text(data=fiuc.f,aes(label = dollar(round(amount,digits=2)), y= pos), size = 3) +
+    #scale_y_continuous(labels = scales::dollar) +
+    #theme_minimal(base_size = 11) + scale_colour_hue(name="Province") +
+    #ylab('Revenue ($K)') + xlab('Fund') +
+    #theme(legend.title=element_blank(),legend.key = element_rect(fill = "transparent", colour = "transparent"))
+
+  #p1a <- ggplotly(p1a, source = 'source') %>%
+  #layout(legend = v,hoverinfo="text")
+  
+  p1a <- plot_ly(fiuc.f,
+                 hoverinfo = 'text', 
+                 text = ~paste('Fund: ', Fund,  '</br>', 
+                             '</br>Revenue: ', 
+                             mapply(x=fiuc.f$amount,
+                                      FUN=superdollars,
+                                      pref="$"),
+                             '</br>Year: ', input$year,
+                             sep=""
+                 )) %>%
+    add_trace(x=fiuc.f$GEO,
+              y=fiuc.f$amount,
+              type='bar', 
+              color=~Fund
+              ) %>%
+    layout(yaxis = list(title=paste(input$year,"  revenue"), 
+                        tickprefix = "$", 
+                        ticksuffix=""),
+           xaxis = list(title="Province"), 
+           barmode='stack',
+           legend = list(orientation = 'h'))
+  #data labels
+  p1a
+  
+})  
+
+plotlyOutput('revfund')
+```
+
+College Revenues
+======================================================================
+
+Inputs {.sidebar data-width=300}
+-------------------------------------
+
+### Select and filter data
+
+__Measure to be used__
+```{r}
+
+#Define inputs
+#Add per capita, per 18-24 and store in denominator
+#Could add download link for visible data
+
+#Per student/population
+#radioButtons('percol', label = NULL, choiceValues = c("Total","Enrolment","Population"), choiceNames = c("Sector total ","Funding per-student (FTE Enrolment)","Funding per person (Population)"),selected = "Enrolment")
+
+radioButtons('percol', label = NULL, choiceValues = c("Total","Enrolment"), choiceNames = c("Sector total ","Funding per-student (FTE Enrolment)"),selected = "Enrolment")
+
+
+```
+
+__Enrolment measure (if selected above)__
+```{r}
+selectInput('immigracol', label = 'Immigration status', choices = unique(enrolcol$IMMIGRA), selected = "Canadian students")
+selectInput('statuscol', label = 'Registration status', choices = unique(enrolcol$STATUS), selected = "Full-time student")
+```
+
+__Select provinces to display__
+```{r}
+checkboxGroupInput('provcol', label = NULL, choices = unique(fincol$GEO),selected=unique(fincol$GEO))
+```
+
+__Select revenue categories to display__
+```{r}
+checkboxGroupInput('catcol', label = NULL, choices = unique(fincol$Category),unique(fincol$Category))
+```
+
+__Select funds to display__
+```{r}
+checkboxGroupInput('fundcol', label =  NULL, choices = unique(fincol$Fund),unique(fincol$Fund))
+```
+
+__Select year for detail view__
+```{r}
+selectInput('yearcol', label = NULL, choices = unique(fincol$Ref_Date), selected = "2014/2015")
+```
+
+Row 
+-----------------------------------------------------------------------
+
+### College Revenues Over Time
+
+```{r}
+
+#Revenue by category with ggplotly
+output$revtimecol <- renderPlotly({
+  fincol.t <- fincol.r()
+  fincol.t <- fincol.t %>%
+  group_by(GEO, Ref_Date) %>%
+  summarise_each(funs(sum),-REVENUE,-Fund,-Category)
+  
+  enrolcol.t <- enrolcol.r()
+  
+  #Merge Denominator
+    if(input$percol=="Enrolment"){
+    fincol.t <- merge(fincol.t, enrolcol.t, by.x = c('GEO','Ref_Date'), by.y = c("GEO2",'Ref_Date'), all.x=TRUE)
+  } else if(input$percol=="Population"){
+    #insert population merge
+  } else if(input$percol=="Total"){
+    fincol.t$Value.y<-as.numeric(1)
+    colnames(fincol.t)[3]<-"Value.x"
+  }
+
+  fincol.t$Ref_Date <- as.numeric(substr(fincol.t$Ref_Date,1,4))
+  fincol.t$amount  <- fincol.t$Value.x/fincol.t$Value.y
+  
+  # p1a <- ggplot(fincol.t, aes(x=Ref_Date,y=amount, colour=GEO)) + 
+  #   geom_line() +
+  #   geom_point(alpha=.4) +
+  #   scale_y_continuous(labels = scales::dollar) +
+  #   theme_minimal(base_size = 11) + scale_colour_hue(name="Province") +
+  #   ylab('Revenue ($K)') + xlab('Year') +
+  #   theme(legend.title=element_blank(),legend.key = element_rect(fill = "transparent", colour = "transparent"))
+  #   
+  # p1a
+  # g <- ggplotly(p1a, source = 'source')
+  
+  p1a <- plot_ly(fincol.t,
+                hoverinfo = 'text', 
+                text = ~paste('Province: ', GEO, '</br>', 
+                               '</br>Revenue: ',
+                              # mapply(x=fincol.t$amount,
+                              #         FUN=superdollars,
+                              #         pref="$"), 
+                              superdollars(1000*fincol.t$amount,"$"),
+                               '</br>year: ', Ref_Date,
+                               sep=""
+                               )) %>%
+                add_trace(x=fincol.t$Ref_Date,
+                          y=fincol.t$amount*1000,
+                          type='scatter',
+                          mode='lines+markers',
+                          color=~GEO
+                          ) %>%
+                layout(yaxis = list(title="revenue",
+                                    tickprefix = "$"
+                                    ),
+                       xaxis = list(title="Year"))
+  p1a
+  
+})  
+
+plotlyOutput('revtimecol')
+
+```
+
+Row
+-----------------------------------------------------------------------
+
+### College Revenues by Category
+
+```{r}
+
+#Filter and aggregate data
+output$revcatcol <- renderPlotly({
+
+  fincol.c <- fincol.r()
+  fincol.c <- fincol.c[fincol.c$Ref_Date==input$yearcol,]
+
+  fincol.c <- fincol.c %>%
+  group_by(GEO, Category) %>%
+  summarise_each(funs(sum),-REVENUE,-Fund, -Ref_Date)
+  
+  enrolcol.c <- enrolcol.r()
+  enrolcol.c <- enrolcol.c[enrolcol.c$Ref_Date==input$yearcol,]
+  
+  #Merge denominator
+  if(input$percol=="Enrolment"){
+    fincol.c <- merge(fincol.c, enrolcol.c, by.x = 'GEO', by.y = "GEO2", all.x=TRUE)
+  } else if(input$percol=="Population"){
+    #insert population merge
+  } else if(input$percol=="Total"){
+    fincol.c$Value.y<-1
+    colnames(fincol.c)[3]<-"Value.x"
+  }
+   
+  fincol.c$amount  <- fincol.c$Value.x/fincol.c$Value.y*1000
+  fincol.c <- ddply(fincol.c, .(GEO), transform, pos = cumsum(amount) - (0.5 * amount))
+
+  #Plot
+  # p1a <- ggplot(fincol.c, aes(x=GEO,y=amount, fill=Category)) + 
+  #   geom_bar(stat="identity", alpha = .8) +
+  #   geom_text(data=fincol.c,aes(label = dollar(round(amount,digits=2)), y= pos), size = 3) +
+  #   scale_y_continuous(labels = scales::dollar) +
+  #   theme_minimal(base_size = 11) + scale_colour_hue(name="Province") +
+  #   ylab('Revenue ($K)') + xlab('Category') +
+  #   theme(legend.title=element_blank(),legend.key = element_rect(fill = "transparent", colour = "transparent"))
+  # 
+  # p1a <- ggplotly(p1a, source = 'source') %>%
+  # layout(legend = v)
+  
+  
+  
+   p1a <- plot_ly(fincol.c,
+                hoverinfo = 'text', 
+                text = ~paste('Category: ', Category, '</br>', 
+                               '</br>Revenue: ', 
+                              mapply(x=fincol.c$amount,
+                                      FUN=superdollars,
+                                      pref="$"),
+                               '</br>Year: ', input$year,
+                               sep=""
+                               )) %>%
+    add_trace(x=fincol.c$GEO,
+              y=fincol.c$amount,type='bar', 
+              color=~Category
+              ) %>%
+    layout(yaxis = list(title=paste(input$year,"  revenue"), 
+                        tickprefix = "$", 
+                        ticksuffix=""),
+           xaxis = list(title="Province"), 
+           barmode='stack',
+           legend = list(orientation = 'h'))
+
+  p1a 
+  
+  
+})  
+
+plotlyOutput('revcatcol')
+```
+
+### College Revenues by Fund
+
+```{r}
+
+#Filter and aggregate data
+output$revfundcol <- renderPlotly({
+
+  fincol.f <- fincol.r()
+  fincol.f <- fincol.f[fincol.f$Ref_Date==input$yearcol,]
+  
+  fincol.f <- fincol.f %>%
+  group_by(GEO, Fund) %>%
+  summarise_each(funs(sum),-REVENUE,-Category,-Ref_Date)
+  
+  enrolcol.f <- enrolcol.r()
+  enrolcol.f <- enrolcol.f[enrolcol.f$Ref_Date==input$yearcol,]
+  
+  #Merge denominator
+  if(input$percol=="Enrolment"){
+    fincol.f <- merge(fincol.f, enrolcol.f, by.x = 'GEO', by.y = "GEO2", all.x=TRUE)
+  } else if(input$percol=="Population"){
+    #insert population merge
+  } else if(input$percol=="Total"){
+    fincol.f$Value.y<-1
+    colnames(fincol.f)[3]<-"Value.x"
+  }
+   
+  fincol.f$amount  <- fincol.f$Value.x/fincol.f$Value.y*1000
+  fincol.f <- ddply(fincol.f, .(GEO), transform, pos = cumsum(amount) - (0.5 * amount))
+  
+  # #Plot
+  # p1a <- ggplot(fincol.f, aes(x=GEO,y=amount, fill=Fund)) + 
+  #   geom_bar(stat="identity", alpha = .8) +
+  #   geom_text(data=fincol.f,aes(label = dollar(round(amount,digits=2)), y= pos), size = 3) +
+  #   scale_y_continuous(labels = scales::dollar) +
+  #   theme_minimal(base_size = 11) + scale_colour_hue(name="Province") +
+  #   ylab('Revenue ($K)') + xlab('Fund') +
+  #   theme(legend.title=element_blank(),legend.key = element_rect(fill = "transparent", colour = "transparent"))
+  # 
+  # p1a <- ggplotly(p1a, source = 'source') %>%
+  # layout(legend = v)
+  
+  
+  
+    p1a <- plot_ly(fincol.f,
+                 hoverinfo = 'text', 
+                 text = ~paste('Fund: ', Fund, '</br>',  
+                             '</br>Revenue: ', 
+                             mapply(x=fincol.f$amount,
+                                      FUN=superdollars,
+                                      pref="$"),
+                             '</br>Year: ', input$year,
+                             sep=""
+                 )) %>%
+    add_trace(x=fincol.f$GEO,
+              y=fincol.f$amount,
+              type='bar', 
+              color=~Fund
+              ) %>%
+    layout(yaxis = list(title=paste(input$year,"  revenue"), 
+                        tickprefix = "$", 
+                        ticksuffix=""),
+           xaxis = list(title="Province"), 
+           barmode='stack',
+           legend = list(orientation = 'h'))
+  #data labels
+  p1a
+  
+})  
+
+plotlyOutput('revfundcol')
+```
+
+
+<style>
+
+/*basic formatting*/
+
+ #sidebar.section.sidebar {
+     background-color: rgba(51, 122, 183, 0.4);
+     font-family: "Open Sans", "Helvetica Neue", Helvetica, Arial, sans-serif !important;
+ }
+ body {
+     background: rgba(0, 0, 0, 0.015);
+ }
+ .section.sidebar {
+     background-color: #f8f8f8;
+ }
+ .value-box {
+     color: inherit;
+ }
+ .bg-primary {
+     background-color: rgba(51, 122, 183, 0.4);
+ }
+ .nav-tabs-custom > .nav-tabs > li.active {
+     border-top-color: rgba(51, 122, 183, 0.4);
+ }
+ .navbar-inverse {
+     background-color: #691bad;
+     border-color: #691bad;
+ }
+
+ .navbar-inverse .navbar-brand:hover,
+ .navbar-inverse .navbar-brand:focus {
+     color: #ffffff;
+     background-color: none;
+ }
+ .navbar-inverse .navbar-text {
+     color: #ffffff;
+ }
+ .navbar-inverse .navbar-nav > li > a {
+     color: #ffffff;
+ }
+ .navbar-inverse .navbar-nav > .active > a,
+ .navbar-inverse .navbar-nav > .active > a:hover,
+ .navbar-inverse .navbar-nav > .active > a:focus {
+     color: #ffffff;
+     background-color: rgba(157, 25, 190, 0.8);
+ }
+
+ .navbar-inverse .navbar-nav > .active > a:hover {
+     text-decoration: underline;
+ }
+
+/* Minor adjustments to improve visual hierarchy and spacing*/ 
+
+.chart-title{
+     font-size: 14px;
+     font-weight: bold;
+     padding: 7px 10px 7px;
+}
+
+.chart-wrapper .chart-stage {
+     padding: 10px 10px 5px 15px;
+}
+
+li:before {
+    margin-left: -4px;
+}
+
+li:{
+     padding-left: 8px;
+}
+
+p:{
+    margin: 5px 0 9px 0;
+}
+
+.container-fluid {
+     padding: 21px 15px 5px 25px;
+}
+
+.navbar-logo {
+     margin-top: -3px;
+     margin-right: 20px;
+}
+
+.navbar-inverse .navbar-brand {
+    color: #ffffff;
+    font-weight: bold;
+}
+
+
+/* Adjust workspace to accommodate larger header */
+
+.section.sidebar{
+    margin-top: 30px;
+    background: #f9f9f9; /* For browsers that do not support gradients */
+    background: -webkit-linear-gradient(left top, #f9f9f9, #ededed); /* For Safari 5.1 to 6.0 */
+    background: -o-linear-gradient(bottom right, #f9f9f9, #ededed); /* For Opera 11.1 to 12.0 */
+    background: -moz-linear-gradient(bottom right, #f9f9f9, #ededed); /* For Firefox 3.6 to 15 */
+    background: linear-gradient(to bottom right, #f9f9f9, #ededed); /* Standard syntax */
+}
+
+/* Next section must be customized for each viz to reflect chart titles */
+
+div#section-graphs, div#section-enrolment-vs-sma-targets, div#section-percent-difference, div#section-university-revenues-over-time, div#section-college-revenues-over-time, div#section-university-revenues-over-time{
+   margin-top: 30px;  
+}
+div#section-purpose {
+   margin-top: 38px;
+   max-width: 1200px;
+   margin-left: 15%;
+   margin-right: 15%;
+}
+
+div#section-content, div#section-context, div#section-tool-functions  {
+   max-width: 1200px;
+   margin-left: 15%;
+   margin-right: 15%;
+}
+
+div#section-notes  {
+   max-width: 600px;
+   margin-left: 15%;
+}
+
+div#section-contact  {
+   max-width: 600px;
+   margin-right: 15%;
+}
+
+/* reorganize inputs a little */
+
+input#test17, input#test18, input#test19, input#test20, input#test21 {
+     width: 80%;
+}
+
+.shiny-input-container label {
+    /*float: left;*/
+    padding: 9px 8px 0px 9px;
+    font-size: 13px;
+    
+}
+
+.radio label {
+    min-width:198px;
+    margin-left:20px;
+}
+
+.btn {
+    float:left;
+    margin-right:10px;
+    background-color:#9e7abf;
+}
+
+.btn-default{
+  background-color:#9e7abf;
+  background-image:inherit;
+  border-color:rgba#9e7abf;
+  border:1px solid rgb(185, 185, 185);
+}
+.btn-default:hover{
+  background-color:#8059a3;
+  background-image:inherit;
+  border-color:#8059a3;
+}
+
+h4{
+  margin-top:25px;
+}
+
+.woot{
+    background-color: #9e7abf;
+    border: none;
+    color: white;
+    padding: 10px;
+    text-align: center;
+    text-decoration: none;
+    display: inline-block;
+    font-size: 14px;
+    width:100%;
+    margin-bottom:16px;
+}
+
+.woot:hover{
+    background-color: #8059a3;
+    text-decoration: none;
+}
+
+.checkbox{
+    margin: 0 0 0 20px;
+}
+
+/* add fancy radio buttons */
+.radio input[type="radio"]{
+  margin-left:-23px;
+  margin-top:0px;
+}
+
+    input[type='radio']:after {
+        width: 20px;
+        height: 20px;
+        border-radius: 20px;
+        margin-top:-1px;
+        margin-left:-2px;
+        position: relative;
+        background-color: #d1d3d1;
+        content: '';
+        display: inline-block;
+        visibility: visible;
+        border: 2px solid white;
+    }
+
+    input[type='radio']:checked:after {
+        width: 20px;
+        height: 20px;
+        border-radius: 20px;
+        margin-top:-1px;
+        margin-left:-2px;
+        position: relative;
+        background-color: #9e7abf;
+        content: '';
+        display: inline-block;
+        visibility: visible;
+        border: 2px solid white;
+    }
+
+.radio{
+  margin-bottom:0px;
+}
+
+/* download button */
+
+a#downloadData{
+    background-color: #9e7abf;
+    border: none;
+    color: white;
+    padding: 10px;
+    text-align: center;
+    text-decoration: none;
+    display: inline-block;
+    font-size: 14px;
+    width:100%;
+}
+a#downloadData:hover{
+    background-color: #8059a3;
+    text-decoration: none;
+}
+
+/* Reset */
+.reset{
+    background-color: #9e7abf;
+    border: none;
+    color: white;
+    padding: 10px;
+    text-align: center;
+    text-decoration: none;
+    display: inline-block;
+    font-size: 14px;
+    width:100%;
+}
+.reset:hover{
+    background-color: #8059a3;
+    text-decoration: none;
+}
+
+</style>
