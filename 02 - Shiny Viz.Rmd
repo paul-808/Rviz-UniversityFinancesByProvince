@@ -199,11 +199,7 @@ The data is entirely open, and sourced from __StatCan__, including the following
 
 ### Contact
 
-* Does this tool meet your needs? 
-* Do the use cases resonate with you?
-* Are there other use cases or features you think would be helpful?
 
-Should you encounter any issues with this tool, please contact the Funding Policy and System Planning Unit at MAESD: http://www.infogo.gov.on.ca/infogo/#orgProfile/5640/en 
 
 University Revenues
 ======================================================================
